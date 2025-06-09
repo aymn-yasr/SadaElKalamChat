@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>شات صدى الكلام - تسجيل الدخول</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/login_page_styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+</head>
+<body>
+    <div class="message-container" id="systemMessageContainer">
+        <p id="systemMessageText"></p>
+    </div>
+
+    <div class="login-container">
+        <h1>شات صدى الكلام</h1>
+        <p>مرحباً بك في شات صدى الكلام. انضم إلى مجتمعنا وتواصل مع الأصدقاء.</p>
+
+        <div class="login-options">
+            <button class="login-button member" id="memberLoginBtn">
+                <i class="fas fa-sign-in-alt"></i> تسجيل دخول الأعضاء
+            </button>
+            <button class="login-button register" id="registerBtn">
+                <i class="fas fa-user-plus"></i> تسجيل حساب جديد
+            </button>
+            <button class="login-button guest" id="guestLoginBtn">
+                <i class="fas fa-user"></i> دخول كزائر
+            </button>
+        </div>
+
+        <div class="terms-link">
+            بالدخول، أنت توافق على <a href="#" id="termsButton">شروط الاستخدام</a>
+        </div>
+    </div>
+
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>تسجيل دخول الأعضاء</h2>
+            <form id="loginForm">
+                <input type="text" id="loginEmail" placeholder="اسم المستخدم" required>
+                <input type="password" id="loginPassword" placeholder="كلمة المرور" required>
+                <button type="submit">تسجيل الدخول</button>
+                <p class="modal-footer-link">
+                    <a href="#" id="forgotPasswordLink">نسيت كلمة المرور؟</a>
+                </p>
+            </form>
+        </div>
+    </div>
+
+    <div id="registerModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>تسجيل حساب جديد</h2>
+            <form id="registerForm">
+                <input type="text" id="registerUsername" placeholder="اسم المستخدم" required>
+                <input type="password" id="registerPassword" placeholder="كلمة المرور (6 أحرف على الأقل)" required>
+                
+                <div class="input-group-half">
+                    <select id="registerAge" required>
+                        <option value="" disabled selected>اختر العمر</option>
+                        <script>
+                            for (let i = 13; i <= 99; i++) {
+                                document.write(`<option value=\"${i}\">${i}</option>`);
+                            }
+                        </script>
+                    </select>
+                    <select id="registerGender" required>
+                        <option value="" disabled selected>اختر الجنس</option>
+                        <option value="ذكر">ذكر</option>
+                        <option value="أنثى">أنثى</option>
+                    </select>
+                </div>
+
+                <button type="submit">تسجيل</button>
+                <p class="modal-footer-link">
+                    بالتسجيل، أنت توافق على <a href="#" id="modalTermsLink">شروط الاستخدام</a>
+                </p>
+            </form>
+        </div>
+    </div>
+
+    <div id="guestLoginModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>دخول كزائر</h2>
+            <form id="guestLoginForm">
+                <input type="text" id="guestUsername" placeholder="اسم الزائر" required>
+                
+                <div class="input-group-half">
+                    <select id="guestAge" required>
+                        <option value="" disabled selected>اختر العمر</option>
+                        <script>
+                            for (let j = 13; j <= 99; j++) {
+                                document.write(`<option value=\"${j}\">${j}</option>`);
+                            }
+                        </script>
+                    </select>
+                    <select id="guestGender" required>
+                        <option value="" disabled selected>اختر الجنس</option>
+                        <option value="ذكر">ذكر</option>
+                        <option value="أنثى">أنثى</option>
+                    </select>
+                </div>
+
+                <button type="submit">دخول</button>
+            </form>
+        </div>
+    </div>
+
+    <script type="module" src="js/chat_app.js"></script>
+</body>
+</html>
