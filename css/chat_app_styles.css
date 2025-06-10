@@ -227,17 +227,22 @@ body {
 }
 
 .chat-message .highlight-mention {
-    color: #e91e63;
-    font-weight: bold;
-    background-color: rgba(233, 30, 99, 0.1);
+    color: yellow; /* لون أصفر واضح */
+    font-weight: bold; /* لجعلها بارزة */
+    background-color: rgba(255, 255, 0, 0.1); /* خلفية خفيفة لمزيد من التمييز */
     padding: 2px 4px;
-    border-radius: 4px;
+    border-radius: 3px;
 }
 
 .chat-message .other-mention {
-    color: #1a73e8;
-    font-weight: bold;
+    /* هنا اجعل لون المنشن هو لون النص العادي */
+    color: inherit; /* سيورث لون النص الأساسي للرسالة */
+    font-weight: normal; /* ليس بارزًا */
+    background-color: transparent; /* بدون خلفية */
+    padding: 0;
+    border-radius: 0;
 }
+
 
 .chat-message.system-message {
     justify-content: flex-start;
