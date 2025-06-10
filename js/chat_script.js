@@ -84,7 +84,7 @@ const RANK_PERMISSIONS = {
         canStartPrivateChat: true, // صلاحية جديدة
     },
     "زائر": {
-        canSendMessage: false,
+        canSendMessage: true,
         canViewMessages: true,
         canKickBan: false,
         canDeleteAnyMessage: false,
