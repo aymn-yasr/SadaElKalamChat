@@ -87,14 +87,15 @@ function redirectToChatPage() {
     window.location.href = CHAT_PAGE_URL;
 }
 
-// دالة لحفظ بيانات المستخدم في sessionStorage
+// **تم التعديل هنا: استخدام localStorage بدلاً من sessionStorage**
+// دالة لحفظ بيانات المستخدم في localStorage
 function saveUserDataToSession(uid, username, photoURL, userType) {
-    sessionStorage.setItem('loggedIn', 'true');
-    sessionStorage.setItem('userUid', uid);
-    sessionStorage.setItem('userUsername', username);
-    sessionStorage.setItem('userPhotoURL', photoURL);
-    sessionStorage.setItem('userType', userType); // 'عضو' أو 'زائر'
-    // لا نحفظ العمر والجنس في sessionStorage لأنها ليست ضرورية لكل طلب
+    localStorage.setItem('loggedIn', 'true');
+    localStorage.setItem('userUid', uid);
+    localStorage.setItem('userUsername', username);
+    localStorage.setItem('userPhotoURL', photoURL);
+    localStorage.setItem('userType', userType); // 'عضو' أو 'زائر'
+    // لا نحفظ العمر والجنس في localStorage لأنها ليست ضرورية لكل طلب
     // يتم جلبها من Firestore عند الحاجة في صفحة الشات
 }
 
@@ -130,7 +131,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         const querySnapshot = await getDocs(q);
 
         if (querySnapshot.empty) {
-            displaySystemMessage('اسم المستخدم هذا غير موجود.', 'error');
+            displaySystemMessage('اسم المستخدم أو كلمة المرور غير صحيحة.', 'error'); // رسالة موحدة لأمان أفضل
             return;
         }
 
@@ -138,7 +139,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         const email = userData.email; // استخراج البريد الإلكتروني من بيانات المستخدم في Firestore
 
         if (!email) {
-            displaySystemMessage('خطأ: لا يوجد بريد إلكتروني مرتبط بهذا الحساب.', 'error');
+            displaySystemMessage('خطأ: لا يوجد بريد إلكتروني مرتبط بهذا الحساب. يرجى الاتصال بالدعم.', 'error');
             return;
         }
 
@@ -156,12 +157,14 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         }
     } catch (error) {
         let errorMessage = "حدث خطأ غير معروف في تسجيل الدخول.";
-        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-            errorMessage = "اسم المستخدم أو كلمة المرور غير صحيحة."; // تم تعديل الرسالة
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            errorMessage = "اسم المستخدم أو كلمة المرور غير صحيحة."; // تم تعديل الرسالة لتشمل invalid-credential
         } else if (error.code === 'auth/invalid-email') {
-            errorMessage = "صيغة البريد الإلكتروني (المستخدم داخليًا) غير صحيحة."; // تم تعديل الرسالة
+            errorMessage = "صيغة البريد الإلكتروني (المستخدم داخليًا) غير صحيحة.";
         } else if (error.code === 'auth/network-request-failed') {
             errorMessage = "خطأ في الشبكة. يرجى التحقق من اتصالك بالإنترنت.";
+        } else if (error.code === 'auth/too-many-requests') {
+            errorMessage = "تم حظر هذا الحساب مؤقتًا بسبب كثرة محاولات تسجيل الدخول الفاشلة. حاول مرة أخرى لاحقًا.";
         }
         console.error("Login error:", error);
         displaySystemMessage(errorMessage, 'error');
@@ -237,6 +240,8 @@ document.getElementById('registerForm').addEventListener('submit', async (e) => 
             errorMessage = "كلمة المرور ضعيفة جدًا (يجب أن تكون 6 أحرف على الأقل).";
         } else if (error.code === 'auth/network-request-failed') {
             errorMessage = "خطأ في الشبكة. يرجى التحقق من اتصالك بالإنترنت.";
+        } else if (error.code === 'auth/operation-not-allowed') {
+            errorMessage = "عملية التسجيل غير مفعلة. يرجى الاتصال بالدعم.";
         }
         console.error("Register error:", error);
         displaySystemMessage(errorMessage, 'error');
@@ -354,9 +359,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // **تم التعديل هنا: التحقق من localStorage بدلاً من sessionStorage**
     // التحقق عند تحميل الصفحة إذا كان المستخدم مسجل دخولًا بالفعل
-    const loggedIn = sessionStorage.getItem('loggedIn');
-    const userUid = sessionStorage.getItem('userUid'); 
+    const loggedIn = localStorage.getItem('loggedIn');
+    const userUid = localStorage.getItem('userUid'); 
     
     // إذا كان هناك بيانات تسجيل دخول صالحة، قم بتوجيه المستخدم مباشرة لصفحة الشات
     if (loggedIn === 'true' && userUid) {
