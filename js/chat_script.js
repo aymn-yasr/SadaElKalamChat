@@ -1,7 +1,7 @@
 // js/chat_script.js
 // استيراد الدوال التي تحتاجها من Firebase SDKs
 import { auth, db } from "./firebaseInit.js";
-import { signOut } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-auth.js";
+import { signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-auth.js";
 import { doc, getDoc, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, deleteDoc, getDocs, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
 
 // ثوابت لأسماء مجموعات Firestore
@@ -125,13 +125,6 @@ const editProfileButtonModal = document.getElementById('editProfileButtonModal')
 const leaveRoomButton = document.getElementById('leaveRoomButton');
 const logoutModalButton = document.getElementById('logoutModalButton');
 
-// أزرار التنقل السفلية
-const homeButton = document.getElementById('homeButton');
-const roomsButton = document.getElementById('roomsButton');
-const plusButton = document.getElementById('plusButton');
-const bottomNotificationButton = document.getElementById('bottomNotificationButton');
-const settingsButton = document.getElementById('settingsButton');
-
 // عناصر DOM لمودال المستخدمين المسجلين
 const registeredUsersModal = document.getElementById('registeredUsersModal');
 const closeRegisteredUsersModalButton = document.getElementById('closeRegisteredUsersModal');
@@ -183,17 +176,18 @@ let editingNewsId = null;
 // متغير لتتبع الدردشة الخاصة المفتوحة حاليا (إذا تم فتحها داخل المودال)
 let currentOpenPrivateChatPartner = null; // سيحتوي على بيانات الشريك
 
-// دالة مساعدة لعرض رسائل النظام (تم التعديل: لا تعرض سوى رسائل system_join)
+// دالة مساعدة لعرض رسائل النظام (تم التعديل لعرض system_join فقط في الشات، والبقية في الكونسول)
 function displaySystemMessage(message, type = 'system_info') {
     // فقط اعرض رسائل الانضمام في الشات، وسجل البقية في الكونسول
     if (type === 'system_join') {
         const messageElement = document.createElement('div');
-        messageElement.classList.add('chat-message', type);
-        messageElement.innerHTML = `<div class="message-content"><p class="message-text">${message}</p></div>`;
+        messageElement.classList.add('chat-message', 'system-message', type); // أضف 'system-message' لتمييزها
+        // **إصلاح: التأكد من وجود message قبل عرضه**
+        messageElement.innerHTML = `<div class="message-content"><p class="message-text">${message || 'رسالة نظام'}</p></div>`;
         chatMessages.appendChild(messageElement);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     } else {
-        console.log(`رسالة نظام (غير معروضة): ${message} [النوع: ${type}]`);
+        console.log(`رسالة نظام (غير معروضة في الشات): ${message} [النوع: ${type}]`);
     }
 }
 
@@ -205,11 +199,26 @@ async function fetchCurrentUserData(uid) {
         if (userDocSnap.exists()) {
             currentUserData = userDocSnap.data();
             currentUserData.uid = uid;
+            // التأكد من وجود userType وإذا لم يكن موجودًا، تعيينه إلى "عضو" افتراضيًا
+            if (!currentUserData.userType) {
+                currentUserData.userType = 'عضو';
+            }
+            // التأكد من وجود username و photoURL
+            if (!currentUserData.username) {
+                currentUserData.username = `مستخدم_${uid.substring(0, 5)}`;
+            }
+            if (!currentUserData.photoURL) {
+                currentUserData.photoURL = "default_images/user.png";
+            }
             sessionStorage.setItem('currentUserRank', currentUserData.userType);
         } else {
             console.warn("لم يتم العثور على بيانات المستخدم في Firestore:", uid);
-            currentUserData = { uid: uid, username: "مستخدم غير معروف", photoURL: "default_images/user.png", userType: "زائر" };
-            sessionStorage.setItem('currentUserRank', "زائر");
+            // تعيين بيانات افتراضية للمستخدم غير الموجود
+            currentUserData = { uid: uid, username: `مستخدم_${uid.substring(0, 5)}`, photoURL: "default_images/user.png", userType: "عضو" }; // "عضو" كرتبة افتراضية
+            sessionStorage.setItem('currentUserRank', "عضو"); // رتبة افتراضية
+            // محاولة إنشاء مستند للمستخدم الجديد إذا لم يكن موجودًا
+            await setDoc(userDocRef, currentUserData, { merge: true });
+            console.log("تم إنشاء مستند افتراضي للمستخدم الجديد.");
         }
     } catch (error) {
         console.error("خطأ في جلب بيانات المستخدم:", error);
@@ -232,20 +241,22 @@ function hasPermission(permissionKey) {
     return permissions ? permissions[permissionKey] : false;
 }
 
-// دالة إرسال رسالة نظام للدردشة (مثل الانضمام والمغادرة)
+// دالة إرسال رسالة نظام للدردشة
 async function sendChatSystemMessage(messageText, senderUid, senderUsername, senderPhotoURL, type, userType) {
     try {
+        console.log("داخل sendChatSystemMessage: إرسال رسالة بنوع:", type); // تتبع إضافي
         await addDoc(collection(doc(db, CHAT_ROOM_COLLECTION, currentRoomId), MESSAGES_COLLECTION), {
             senderUid: senderUid,
-            senderUsername: senderUsername,
-            senderPhotoURL: senderPhotoURL,
+            senderUsername: senderUsername || 'مستخدم غير معروف',
+            senderPhotoURL: senderPhotoURL || 'default_images/user.png',
             text: messageText,
             timestamp: serverTimestamp(),
             type: type,
-            userType: userType
+            userType: userType || 'عضو'
         });
+        console.log("تم إرسال رسالة النظام إلى Firestore بنجاح."); // تأكيد الإرسال
     } catch (error) {
-        console.error("خطأ في إرسال رسالة النظام:", error);
+        console.error("خطأ في إرسال رسالة النظام إلى Firestore:", error); // خطأ أكثر تفصيلاً
     }
 }
 
@@ -276,16 +287,19 @@ function mentionUserInInput(username) {
 
         // إذا كان مربع الإدخال فارغًا، أضف المنشن مباشرة
         if (currentMessage === "") {
-            messageInput.value = mentionText;
+            messageInput.value = mentionText + " "; // **التعديل هنا: إضافة مسافة**
         } else {
-            // تحقق إذا كان آخر كلمة في النص هي نفس اسم المستخدم بدون @
-            // هذا لمنع إضافة @اسم_المستخدم مرة أخرى إذا كان المستخدم يحاول تعديل منشن موجود
-            const lastWord = currentMessage.split(' ').pop();
-            if (lastWord !== mentionText && !currentMessage.includes(mentionText)) {
-                messageInput.value += ` ${mentionText}`;
-            } else if (lastWord === mentionText && currentMessage.includes(mentionText)) {
-                // إذا كان المنشن موجوداً بالفعل كآخر كلمة، لا تفعل شيئاً
+            // تجنب إضافة المنشن إذا كان موجوداً بالفعل كآخر كلمة
+            const words = currentMessage.split(' ');
+            const lastWord = words[words.length - 1];
+            if (lastWord === mentionText) {
                 return;
+            }
+            // إذا لم يكن آخر كلمة ولكن المنشن موجود بالفعل، لا تضيفه
+            if (currentMessage.includes(mentionText)) {
+                 messageInput.value = currentMessage + ` ${mentionText} `; // أضف مسافة ومنشن جديد ومسافة بعده
+            } else {
+                messageInput.value += ` ${mentionText} `; // **التعديل هنا: إضافة مسافة بعد المنشن**
             }
         }
         messageInput.focus();
@@ -294,64 +308,91 @@ function mentionUserInInput(username) {
     }
 }
 
+
 // دالة لإرسال رسالة نصية (مع إضافة المنشن)
 async function sendMessage() {
+    // 1. التحقق من صلاحية المستخدم لإرسال الرسائل
     if (!hasPermission('canSendMessage')) {
-        displaySystemMessage("ليس لديك صلاحية لإرسال الرسائل.", 'system_error'); // ستظهر في الكونسول فقط
-        return;
+        displaySystemMessage("ليس لديك صلاحية لإرسال الرسائل.", 'system_error');
+        return; // إيقاف التنفيذ إذا لم يكن لديه الصلاحية
     }
 
+    // 2. جلب نص الرسالة وإزالة المسافات البيضاء الزائدة من البداية والنهاية
     const messageText = messageInput.value.trim();
+
+    // 3. التحقق مما إذا كانت الرسالة فارغة بعد التنظيف أو إذا لم يكن هناك بيانات للمستخدم الحالي
     if (messageText === '' || !currentUserData) {
-        return;
+        return; // لا تفعل شيئًا إذا كانت الرسالة فارغة أو المستخدم غير معروف
     }
 
-    let mentionedUserUids = []; // لتخزين UID المستخدمين الممنشنين
-
-    // جلب جميع المستخدمين للتحقق من المنشن (يتم التحقق من الكاش أولاً)
-    const allUsers = await fetchAllUsers();
-
-    // البحث عن المنشنات في الرسالة
-    // نستخدم تعبير منتظم أكثر مرونة للبحث عن @اسم_المستخدم
-    const mentionRegex = /@([\u0600-\u06FF\w\s.\-]+)/g; // يسمح بالأحرف العربية والإنجليزية والمسافات والنقاط والواصلات
-    let match;
-    const currentMessageText = messageText; // نسخة من الرسالة الأصلية للتحقق
-
-    while ((match = mentionRegex.exec(currentMessageText)) !== null) {
-        const mentionedUsernameInMessage = match[1].trim(); // اسم المستخدم بعد @
-        // البحث عن المستخدم في قائمة المستخدمين المخزنة مؤقتًا
-        const user = allUsers.find(u => u.username === mentionedUsernameInMessage);
-        if (user && user.uid !== currentUserData.uid) { // تأكد من أنه ليس المستخدم نفسه
-            mentionedUserUids.push(user.uid);
+    // 4. === معالجة أمر `/تنظيف` ===
+    if (messageText === '/تنظيف') {
+        // التحقق من صلاحية المستخدم (مالك الشات أو مدير) لتنفيذ أمر التنظيف
+        if (hasPermission('canAccessAdminPanel')) {
+            // استدعاء دالة تنظيف الغرفة مباشرة دون تأكيد
+            await clearChatRoom(currentRoomId);
+            messageInput.value = ''; // مسح مربع الإدخال بعد تنفيذ الأمر
+            return; // إيقاف تنفيذ الدالة لمنع إرسال "/تنظيف" كرسالة عادية
+        } else {
+            // إبلاغ المستخدم إذا لم يكن لديه صلاحية التنظيف
+            displaySystemMessage("ليس لديك صلاحية لتنظيف الغرفة.", 'system_error');
+            messageInput.value = ''; // مسح مربع الإدخال حتى لا تظهر الرسالة ككلام عادي
+            return; // إيقاف تنفيذ الدالة
         }
     }
-    // إزالة أي UIDs مكررة (إذا تم ذكر نفس الشخص عدة مرات)
+    // === نهاية معالجة أمر `/تنظيف` ===
+
+
+    // 5. === معالجة المنشنات في الرسالة العادية ===
+    let mentionedUserUids = []; // مصفوفة لتخزين UID للمستخدمين الممنشنين
+    const allUsers = await fetchAllUsers(); // جلب جميع المستخدمين للتحقق من المنشنات (تستخدم الكاش)
+
+    // التعبير المنتظم للبحث عن المنشنات: @ يليها أحرف عربية/إنجليزية/أرقام/شرطة سفلية
+    const mentionRegex = /@([a-zA-Z0-9_\u0600-\u06FF]+)/g;
+    let match; // متغير لتخزين نتائج المطابقة
+
+    // تكرار للبحث عن جميع المنشنات في نص الرسالة
+    while ((match = mentionRegex.exec(messageText)) !== null) {
+        const mentionedUsernameInMessage = match[1].trim(); // اسم المستخدم الممنشن (الجزء بعد @)
+        // البحث عن المستخدم الممنشن في قائمة جميع المستخدمين
+        const user = allUsers.find(u => u.username === mentionedUsernameInMessage);
+        // إذا تم العثور على المستخدم ولم يكن هو المستخدم الحالي (لتجنب منشن الذات)
+        if (user && user.uid !== currentUserData.uid) {
+            mentionedUserUids.push(user.uid); // إضافة UID للمستخدم الممنشن
+        }
+    }
+    // إزالة أي UIDs مكررة (في حال تم منشن نفس الشخص عدة مرات)
     mentionedUserUids = [...new Set(mentionedUserUids)];
 
 
+    // 6. === إرسال الرسالة إلى Firestore ===
     try {
         await addDoc(collection(doc(db, CHAT_ROOM_COLLECTION, currentRoomId), MESSAGES_COLLECTION), {
-            senderUid: currentUserData.uid,
-            senderUsername: currentUserData.username,
-            senderPhotoURL: currentUserData.photoURL,
-            text: messageText,
-            timestamp: serverTimestamp(),
-            type: 'user_message',
-            userType: currentUserData.userType,
+            senderUid: currentUserData.uid, // UID المرسل
+            senderUsername: currentUserData.username || 'مستخدم غير معروف', // اسم المستخدم المرسل
+            senderPhotoURL: currentUserData.photoURL || 'default_images/user.png', // صورة الملف الشخصي للمرسل
+            text: messageText, // نص الرسالة الأصلي
+            timestamp: serverTimestamp(), // ختم الوقت من الخادم
+            type: 'user_message', // نوع الرسالة (رسالة مستخدم)
+            userType: currentUserData.userType || 'عضو', // رتبة المستخدم المرسل
+            // تخزين UIDs المستخدمين الممنشنين، إذا لم يكن هناك منشنات يكون null
             mentionedUids: mentionedUserUids.length > 0 ? mentionedUserUids : null
         });
-        messageInput.value = '';
 
-        // هنا يمكنك إضافة منطق لإرسال إشعار للمستخدمين الممنشنين
+        messageInput.value = ''; // مسح حقل الإدخال بعد الإرسال الناجح
+
+        // 7. (اختياري) تسجيل أو معالجة المنشنات بعد الإرسال
         if (mentionedUserUids.length > 0) {
             console.log(`تم منشن المستخدمين ذوي الـ UIDs: ${mentionedUserUids.join(', ')}`);
+            // هنا يمكنك إضافة منطق لإرسال إشعارات دفع (Push Notifications) لهؤلاء المستخدمين
         }
 
     } catch (error) {
         console.error("خطأ في إرسال الرسالة:", error);
-        displaySystemMessage("فشل إرسال الرسالة. الرجاء المحاولة مرة أخرى.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("فشل إرسال الرسالة. الرجاء المحاولة مرة أخرى.", 'system_error');
     }
 }
+
 
 // دالة لتشغيل صوت الرسالة الجديدة
 function playNewMessageSound() {
@@ -361,39 +402,49 @@ function playNewMessageSound() {
     }
 }
 
-// دالة لعرض رسالة الدردشة في الواجهة (تم التعديل: لا تعرض رسائل النظام باستثناء system_join)
+// دالة لعرض رسالة الدردشة في الواجهة (تم التعديل: لا تعرض رسائل النظام باستثناء system_join )
 function displayChatMessage(message) {
     // لا تعرض رسائل النظام باستثناء system_join
     if (message.type && message.type.startsWith('system_') && message.type !== 'system_join') {
         // سجلها في الكونسول بدلاً من عرضها في الشات
-        console.log(`رسالة نظام (غير معروضة في الشات): ${message.text} [النوع: ${message.type}, ID: ${message.id}]`);
+        console.log(`رسالة نظام (غير معروضة في الشات): ${message.text || 'رسالة فارغة'} [النوع: ${message.type}, ID: ${message.id}]`); // **إصلاح: إضافة fallback للنص**
         return;
     }
 
     const messageElement = document.createElement('div');
     messageElement.id = message.id;
+    // أضف فئة 'system-message' لرسائل النظام
     messageElement.classList.add('chat-message', message.type && message.type.startsWith('system_') ? 'system-message' : 'user-message');
 
     if (message.type === 'system_join') { // فقط رسائل الانضمام يتم عرضها هنا
         messageElement.innerHTML = `
             <div class="message-content">
-                <p class="message-text">${message.text}</p>
+                <p class="message-text">${message.text || 'رسالة نظام'}</p>
             </div>
         `;
     } else { // رسائل المستخدم العادية
         let adminButtons = '';
-        if (hasPermission('canDeleteAnyMessage') || (currentUserData && currentUserData.uid === message.senderUid)) {
+        const isOwnMessage = currentUserData && currentUserData.uid === message.senderUid;
+
+        // زر الحذف: للمشرفين والمدراء والمالك، ولصاحب الرسالة نفسه
+        if (hasPermission('canDeleteAnyMessage') || isOwnMessage) {
             adminButtons += `<button class="delete-message-button" data-message-id="${message.id}" data-sender-uid="${message.senderUid}" title="حذف الرسالة"><i class="fas fa-trash"></i></button>`;
         }
 
-        if (hasPermission('canKickBan')) {
-            adminButtons += `<button class="kick-user-button" data-uid="${message.senderUid}" data-username="${message.senderUsername}" title="طرد المستخدم"><i class="fas fa-times-circle"></i></button>`;
-            adminButtons += `<button class="ban-user-button" data-uid="${message.senderUid}" data-username="${message.senderUsername}" title="حظر المستخدم"><i class="fas fa-ban"></i></button>`;
-        }
-        if (hasPermission('canMuteUsers')) {
-            adminButtons += `<button class="mute-user-button" data-uid="${message.senderUid}" data-username="${message.senderUsername}" title="إسكات المستخدم"><i class="fas fa-volume-mute"></i></button>`;
+        // أزرار الإدارة الأخرى: تظهر فقط إذا لم تكن الرسالة من نفس المستخدم الذي يدير
+        if (!isOwnMessage) {
+            if (hasPermission('canKickBan')) {
+                adminButtons += `<button class="kick-user-button" data-uid="${message.senderUid}" data-username="${message.senderUsername}" title="طرد المستخدم"><i class="fas fa-times-circle"></i></button>`;
+                adminButtons += `<button class="ban-user-button" data-uid="${message.senderUid}" data-username="${message.senderUsername}" title="حظر المستخدم"><i class="fas fa-ban"></i></button>`;
+            }
+            if (hasPermission('canMuteUsers')) {
+                adminButtons += `<button class="mute-user-button" data-uid="${message.senderUid}" data-username="${message.senderUsername}" title="إسكات المستخدم"><i class="fas fa-volume-mute"></i></button>`;
+            }
         }
 
+
+        // تم الإبقاء على مسارات الصور من RANK_IMAGE_MAP
+        // **إصلاح: التأكد من وجود message.userType**
         const rankImageSrc = RANK_IMAGE_MAP[message.userType] || RANK_IMAGE_MAP['عضو'];
 
         let displayedText = message.text;
@@ -401,64 +452,65 @@ function displayChatMessage(message) {
         if (message.mentionedUids && currentUserData && message.mentionedUids.includes(currentUserData.uid)) {
             const currentUserUsername = currentUserData.username;
             const escapedUsername = currentUserUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`\\b@?${escapedUsername}\\b`, 'gi');
-            displayedText = message.text.replace(regex, `<span class="highlight-mention">@${currentUserUsername}</span>`);
+            // تأكد من أن المنشن يطابق تماماً اسم المستخدم مع @
+            const regex = new RegExp(`@${escapedUsername}\\b`, 'g'); // استخدام \b لضمان مطابقة كلمة كاملة
+            displayedText = displayedText.replace(regex, `<span class="highlight-mention">@${currentUserUsername}</span>`);
         }
            
-        // معالجة المنشنات في النص الأصلي لتغيير مظهرها
-        const mentionRegexDisplay = /@([\u0600-\u06FF\w\s.\-]+)/g;
-        displayedText = displayedText.replace(mentionRegexDisplay, (match, usernameInMessage) => {
+        // معالجة المنشنات في النص الأصلي لتغيير مظهرها (لأي مستخدم آخر)
+        // **التعديل هنا: تغيير التعبير المنتظم للعرض ليطابق اسم المستخدم فقط**
+        const mentionRegexDisplay = /@([a-zA-Z0-9_\u0600-\u06FF]+)/g;
+        displayedText = displayedText.replace(mentionRegexDisplay, (match, usernameInMessage, boundary) => {
             const user = allUsersCached.find(u => u.username === usernameInMessage.trim());
             if (user) {
                 if (currentUserData && user.uid === currentUserData.uid) {
-                    return `<span class="highlight-mention">@${user.username}</span>`;
+                    return `<span class="highlight-mention">@${user.username}</span>${boundary === '$' ? '' : ' '}`; // إذا كان المستخدم الحالي، اتركه كما هو (تم تمييزه بالفعل) وأضف مسافة إلا لو كان نهاية سطر
                 } else {
-                    return `<span class="other-mention">@${user.username}</span>`;
+                    return `<span class="other-mention">@${user.username}</span>${boundary === '$' ? '' : ' '}`; // للآخرين وأضف مسافة إلا لو كان نهاية سطر
                 }
             }
-            return match;
+            return match; // إذا لم يكن مستخدمًا مسجلًا، لا تغيره
         });
+        
+        // **إصلاح: التأكد من وجود البيانات قبل عرضها**
+        const senderUsername = message.senderUsername || 'مستخدم غير معروف';
+        const senderPhotoURL = message.senderPhotoURL || 'default_images/user.png';
+        const messageTime = message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '';
+        const userType = message.userType || 'عضو'; // **إصلاح: إضافة قيمة افتراضية**
+
 
         messageElement.innerHTML = `
-            <img src="${message.senderPhotoURL || 'default_images/user.png'}" alt="صورة المستخدم" class="user-avatar">
+            <img src="${senderPhotoURL}" alt="صورة المستخدم" class="user-avatar">
             <div class="message-content">
                 <div class="user-info">
-                    <span class="username mentionable-username" data-uid="${message.senderUid}" data-username="${message.senderUsername}">${message.senderUsername || 'مستخدم غير معروف'}</span>
-                    ${message.userType ? `<img src="${rankImageSrc}" alt="${message.userType}" class="rank-icon">` : ''}
-                    <span class="message-time">${message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                    <span class="username mentionable-username" data-uid="${message.senderUid}" data-username="${senderUsername}">${senderUsername}</span>
+                    ${userType ? `<img src="${RANK_IMAGE_MAP[userType] || RANK_IMAGE_MAP['عضو']}" alt="${userType}" class="rank-icon">` : ''}
+                    <span class="message-time">${messageTime}</span>
                     <div class="message-actions">${adminButtons}</div>
                 </div>
-                <p class="message-text">${displayedText}</p>
-            </div>
+                <p class="message-text">${displayedText || 'رسالة فارغة'}</p> </div>
         `;
     }
 
     chatMessages.appendChild(messageElement);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
-    // إضافة مستمع حدث للنقر على اسم المرسل للمنشن
+    // إضافة مستمع حدث للنقر على اسم المرسل للمنشن فقط
+    // تأكد من أن هذا ليس رسالة نظام قبل إضافة مستمع النقر
     if (!message.type || !message.type.startsWith('system_')) {
         const senderNameSpan = messageElement.querySelector('.mentionable-username');
         if (senderNameSpan) {
             senderNameSpan.style.cursor = 'pointer';
-            senderNameSpan.title = 'انقر لبدء محادثة خاصة أو الإشارة إلى هذا المستخدم'; // تعديل العنوان
+            senderNameSpan.title = 'انقر للإشارة إلى هذا المستخدم';
             senderNameSpan.addEventListener('click', () => {
-                const usernameToMention = senderNameSpan.dataset.username;
-                const uidToChat = senderNameSpan.dataset.uid;
-                const photoURLToChat = senderNameSpan.closest('.chat-message').querySelector('.user-avatar').src;
+                const usernameToInteract = senderNameSpan.dataset.username;
+                const uidToInteract = senderNameSpan.dataset.uid;
 
-                if (usernameToMention && currentUserData && usernameToMention !== currentUserData.username) {
-                    // اسأل المستخدم ماذا يريد أن يفعل: منشن أو دردشة خاصة
-                    const action = confirm(`ماذا تريد أن تفعل مع ${usernameToMention}؟\n\nموافق: لبدء محادثة خاصة\nإلغاء: للمنشن في الشات العام`);
-                    if (action) {
-                        if (hasPermission('canStartPrivateChat')) {
-                            startNewPrivateChat(uidToChat, usernameToMention, photoURLToChat);
-                        } else {
-                            displaySystemMessage("ليس لديك صلاحية لبدء محادثات خاصة.", 'system_error');
-                        }
-                    } else {
-                        mentionUserInInput(usernameToMention);
-                    }
+                // إذا كان المستخدم الحالي، افتح ملفه الشخصي (بدلاً من منشن نفسه)
+                if (currentUserData && uidToInteract === currentUserData.uid) {
+                    openProfileModal();
+                } else if (usernameToInteract) {
+                    mentionUserInInput(usernameToInteract);
                 }
             });
         }
@@ -467,48 +519,130 @@ function displayChatMessage(message) {
 
 // دالة لحذف الرسائل
 async function deleteMessage(messageId, senderUid) {
+    // يمكن لصاحب الرسالة حذف رسالته، والمدراء/المالك يمكنهم حذف أي رسالة
     if (!hasPermission('canDeleteAnyMessage') && !(currentUserData && currentUserData.uid === senderUid)) {
-        displaySystemMessage("ليس لديك صلاحية لحذف هذه الرسالة.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("ليس لديك صلاحية لحذف هذه الرسالة.", 'system_error');
         return;
     }
 
     if (confirm("هل أنت متأكد أنك تريد حذف هذه الرسالة؟")) {
         try {
             await deleteDoc(doc(db, CHAT_ROOM_COLLECTION, currentRoomId, MESSAGES_COLLECTION, messageId));
-            displaySystemMessage("تم حذف الرسالة بنجاح.", 'system_info'); // ستظهر في الكونسول فقط
+            displaySystemMessage("تم حذف الرسالة بنجاح.", 'system_info');
         } catch (error) {
             console.error("خطأ في حذف الرسالة:", error);
-            displaySystemMessage("فشل حذف الرسالة. الرجاء المحاولة مرة أخرى.", 'system_error'); // ستظهر في الكونسول فقط
+            displaySystemMessage("فشل حذف الرسالة. الرجاء المحاولة مرة أخرى.", 'system_error');
         }
+    }
+}
+// دالة لتنظيف جميع رسائل الغرفة
+async function clearChatRoom(roomId) {
+    try {
+        // 1. الحصول على مرجع لمجموعة الرسائل في الغرفة المحددة
+        const messagesRef = collection(doc(db, CHAT_ROOM_COLLECTION, roomId), MESSAGES_COLLECTION);
+        // 2. إنشاء استعلام لجلب جميع الرسائل
+        const q = query(messagesRef);
+        // 3. تنفيذ الاستعلام للحصول على لقطة (snapshot) للرسائل
+        const querySnapshot = await getDocs(q);
+
+        // 4. التحقق مما إذا كانت الغرفة فارغة بالفعل
+        if (querySnapshot.empty) {
+            displaySystemMessage("الغرفة فارغة بالفعل، لا توجد رسائل لحذفها.", 'system_info');
+            return; // إنهاء الدالة إذا لم تكن هناك رسائل
+        }
+
+        // 5. إنشاء مصفوفة لتخزين وعود (Promises) عمليات الحذف
+        const deletePromises = [];
+        // 6. المرور على كل مستند (رسالة) في اللقطة وإضافة وعد الحذف إلى المصفوفة
+        querySnapshot.forEach((docSnap) => {
+            deletePromises.push(deleteDoc(doc(db, CHAT_ROOM_COLLECTION, roomId, MESSAGES_COLLECTION, docSnap.id)));
+        });
+
+        // 7. انتظار انتهاء جميع عمليات الحذف المتوازية
+        await Promise.all(deletePromises);
+
+        // 8. إرسال رسالة نظام لإبلاغ الجميع بأن الغرفة قد تم تنظيفها
+        // === التعديل هنا: لضمان ظهور اسم المستخدم الصحيح ===
+        // نتحقق من وجود currentUserData و username داخله، وإلا نستخدم 'مسؤول غير معروف'
+        const cleanerUsername = currentUserData && currentUserData.username ? currentUserData.username : 'مسؤول غير معروف';
+        const cleanMessageText = `تم تنظيف الغرفة من قبل ${cleanerUsername}.`;
+
+        // نستخدم بيانات المستخدم الحالي (أو بيانات افتراضية إذا لم تكن متاحة) كمرسل لرسالة النظام
+        await sendChatSystemMessage(
+            cleanMessageText,
+            currentUserData ? currentUserData.uid : 'system_cleaner_uid', // UID افتراضي إذا لم يكن متاحًا
+            currentUserData ? currentUserData.username : 'النظام', // اسم المستخدم لرسالة النظام
+            currentUserData ? currentUserData.photoURL : 'default_images/user.png', // صورة افتراضية لرسالة النظام
+            'system_info', // نوع الرسالة
+            currentUserData ? currentUserData.userType : 'نظام' // رتبة المستخدم لرسالة النظام
+        );
+
+        // 9. مسح الرسائل من واجهة المستخدم فورًا (بدون انتظار إعادة التحميل)
+        chatMessages.innerHTML = '';
+        // هذه الرسالة ستظهر فقط للمستخدم الذي قام بالتنظيف
+        displaySystemMessage("تم تنظيف الغرفة بنجاح.", 'system_info');
+
+    } catch (error) {
+        console.error("خطأ في تنظيف الغرفة:", error);
+        displaySystemMessage("فشل تنظيف الغرفة. الرجاء المحاولة مرة أخرى.", 'system_error');
     }
 }
 
 // الاستماع لرسائل الدردشة في الغرفة الحالية
 function listenForMessages() {
+    // التحقق مما إذا كان هناك مستمع سابق لإلغائه لتجنب تكرار الاستماع
+    // إذا كنت تستخدم unsubscribeMessages كمتغير عام، تأكد من تعريفه في النطاق الأعلى
+    if (typeof unsubscribeMessages !== 'undefined' && unsubscribeMessages) {
+        unsubscribeMessages();
+    }
+
     const messagesRef = collection(doc(db, CHAT_ROOM_COLLECTION, currentRoomId), MESSAGES_COLLECTION);
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
-    onSnapshot(q, (snapshot) => {
+    // تخزين وظيفة إلغاء الاشتراك في متغير عام (إذا كنت تستخدمها)
+    // هذا يسمح بإلغاء الاشتراك عند تغيير الغرفة مثلاً
+    unsubscribeMessages = onSnapshot(q, (snapshot) => {
+        let shouldScrollToBottom = false; // متغير لتحديد ما إذا كان يجب التمرير
+
         snapshot.docChanges().forEach((change) => {
             if (change.type === "added") {
                 displayChatMessage({ ...change.doc.data(), id: change.doc.id });
                 // لا تشغل الصوت لرسائل النظام، فقط لرسائل المستخدمين
-                if (change.doc.data().type === 'user_message') {
-                     playNewMessageSound();
+                if (change.doc.data().type === 'user_message' && change.doc.data().senderUid !== (currentUserData ? currentUserData.uid : null)) {
+                    playNewMessageSound();
                 }
+                shouldScrollToBottom = true; // تم إضافة رسالة، لذا يجب التمرير
             }
             if (change.type === "removed") {
                 const messageToRemove = document.getElementById(change.doc.id);
                 if (messageToRemove) {
                     messageToRemove.remove();
                 }
+                // في حالة حذف رسالة، قد لا نحتاج للتمرير إلا إذا كان الحذف في الأسفل
+                // ولكن للتبسيط، نركز على "added" للتمرير إلى الأسفل.
             }
+            // إذا كان لديك 'modified' type، أضفها هنا
         });
+
+        // === إضافة منطق التمرير إلى الأسفل هنا ===
+        // نستخدم setTimeout بـ 0 مللي ثانية لضمان أن المتصفح قد قام بتحديث DOM بالكامل
+        // وحساب scrollHeight بشكل صحيح بعد إضافة الرسائل.
+        if (shouldScrollToBottom) {
+            setTimeout(() => {
+                const chatMessagesDiv = document.getElementById('chatMessages'); // تأكد من ID العنصر الذي يعرض الرسائل
+                if (chatMessagesDiv) {
+                    chatMessagesDiv.scrollTop = chatMessagesDiv.scrollHeight;
+                    console.log("تم التمرير إلى أسفل الدردشة."); // رسالة للمطور للتأكيد
+                }
+            }, 0); 
+        }
+
     }, (error) => {
         console.error("خطأ في الاستماع للرسائل:", error);
-        displaySystemMessage("خطأ في تحميل الرسائل. الرجاء تحديث الصفحة."); // ستظهر في الكونسول فقط
+        displaySystemMessage("خطأ في تحميل الرسائل. الرجاء تحديث الصفحة.");
     });
 }
+
 
 // ===========================================
 // معالجات أحداث الأزرار الرئيسية
@@ -542,8 +676,9 @@ if (chatMessages) {
             const targetUid = kickButton.dataset.uid;
             const targetUsername = kickButton.dataset.username;
             if (confirm(`هل أنت متأكد من رغبتك في طرد ${targetUsername}؟`)) {
-                displaySystemMessage(`تم طرد ${targetUsername}.`, 'system_warning'); // ستظهر في الكونسول فقط
-                await sendChatSystemMessage(`تم طرد ${targetUsername}.`, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_kick', currentUserData.userType);
+                displaySystemMessage(`تم طرد ${targetUsername}.`, 'system_warning');
+                // لا نرسل رسالة نظام للمغادرة هنا
+                // await sendChatSystemMessage(`تم طرد ${targetUsername}.`, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_kick', currentUserData.userType);
                 // هنا أضف منطق الطرد الفعلي (مثلاً، تحديث حالة المستخدم في DB أو إزالة المستخدم من الغرفة)
             }
         }
@@ -553,9 +688,10 @@ if (chatMessages) {
             const targetUid = banButton.dataset.uid;
             const targetUsername = banButton.dataset.username;
             if (confirm(`هل أنت متأكد من رغبتك في حظر ${targetUsername}؟`)) {
-                displaySystemMessage(`تم حظر ${targetUsername}.`, 'system_warning'); // ستظهر في الكونسول فقط
+                displaySystemMessage(`تم حظر ${targetUsername}.`, 'system_warning');
                 await setDoc(doc(db, USERS_COLLECTION, targetUid), { isBanned: true }, { merge: true });
-                await sendChatSystemMessage(`تم حظر ${targetUsername}.`, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_ban', currentUserData.userType);
+                // لا نرسل رسالة نظام للمغادرة هنا
+                // await sendChatSystemMessage(`تم حظر ${targetUsername}.`, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_ban', currentUserData.userType);
             }
         }
 
@@ -566,11 +702,12 @@ if (chatMessages) {
             const duration = prompt("أدخل مدة الإسكات بالدقائق:", "60");
             if (duration && !isNaN(parseInt(duration)) && parseInt(duration) > 0) {
                 const muteUntil = new Date(Date.now() + parseInt(duration) * 60 * 1000);
-                displaySystemMessage(`تم إسكات ${targetUsername} لمدة ${duration} دقيقة.`, 'system_warning'); // ستظهر في الكونسول فقط
+                displaySystemMessage(`تم إسكات ${targetUsername} لمدة ${duration} دقيقة.`, 'system_warning');
                 await setDoc(doc(db, USERS_COLLECTION, targetUid), { isMuted: true, muteUntil: muteUntil }, { merge: true });
-                await sendChatSystemMessage(`تم إسكات ${targetUsername} لمدة ${duration} دقيقة.`, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_mute', currentUserData.userType);
+                // لا نرسل رسالة نظام للمغادرة هنا
+                // await sendChatSystemMessage(`تم إسكات ${targetUsername} لمدة ${duration} دقيقة.`, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_mute', currentUserData.userType);
             } else {
-                displaySystemMessage("مدة إسكات غير صالحة.", 'system_error'); // ستظهر في الكونسول فقط
+                displaySystemMessage("مدة إسكات غير صالحة.", 'system_error');
             }
         }
     });
@@ -583,7 +720,7 @@ if (chatMessages) {
 // دالة لفتح المودال وملء البيانات
 function openProfileModal() {
     if (!currentUserData) {
-        displaySystemMessage("خطأ: بيانات المستخدم غير متوفرة لفتح الملف الشخصي.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("خطأ: بيانات المستخدم غير متوفرة لفتح الملف الشخصي.", 'system_error');
         return;
     }
 
@@ -632,7 +769,7 @@ if (adminPanelButtonModal) {
         if (hasPermission('canAccessAdminPanel')) {
             window.location.href = ADMIN_PANEL_PAGE_URL;
         } else {
-            displaySystemMessage("ليس لديك صلاحية للوصول إلى لوحة الإدارة.", 'system_error'); // ستظهر في الكونسول فقط
+            displaySystemMessage("ليس لديك صلاحية للوصول إلى لوحة الإدارة.", 'system_error');
         }
         profileModal.style.display = 'none';
     });
@@ -662,12 +799,13 @@ if (editProfileButtonModal) {
 if (leaveRoomButton) {
     leaveRoomButton.addEventListener('click', async () => {
         if (confirm("هل أنت متأكد أنك تريد مغادرة هذه الغرفة؟")) {
-            if (currentUserData && currentUserData.uid) {
-                const leaveMessageText = `غادر ${currentUserData.username || 'مستخدم'} (${currentUserData.userType || 'عضو'}) الغرفة.`;
-                await sendChatSystemMessage(leaveMessageText, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_leave', currentUserData.userType);
-                sessionStorage.removeItem(`hasJoinedChatSession_${currentUserData.uid}`);
-            }
-            displaySystemMessage("لقد غادرت الغرفة. يمكنك الانضمام لغرفة أخرى أو الخروج.", 'system_info'); // ستظهر في الكونسول فقط
+            // إزالة رسالة المغادرة
+            // if (currentUserData && currentUserData.uid) {
+            //     const leaveMessageText = `غادر ${currentUserData.username || 'مستخدم'} (${currentUserData.userType || 'عضو'}) الغرفة.`;
+            //     await sendChatSystemMessage(leaveMessageText, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_leave', currentUserData.userType);
+            //     sessionStorage.removeItem(`hasJoinedChatSession_${currentUserData.uid}`);
+            // }
+            displaySystemMessage("لقد غادرت الغرفة. يمكنك الانضمام لغرفة أخرى أو الخروج.", 'system_info');
             profileModal.style.display = 'none';
         }
     });
@@ -677,22 +815,22 @@ if (logoutModalButton) {
     logoutModalButton.addEventListener('click', async () => {
         if (confirm("هل أنت متأكد أنك تريد تسجيل الخروج؟")) {
             try {
-                if (currentUserData && currentUserData.uid) {
-                    const leaveMessageText = `غادر ${currentUserData.username || 'مستخدم'} (${currentUserData.userType || 'عضو'}) الشات.`;
-                    await sendChatSystemMessage(leaveMessageText, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_leave', currentUserData.userType);
-                    sessionStorage.removeItem(`hasJoinedChatSession_${currentUserData.uid}`);
-                }
+                // إزالة رسالة المغادرة عند تسجيل الخروج
+                // if (currentUserData && currentUserData.uid) {
+                //     const leaveMessageText = `غادر ${currentUserData.username || 'مستخدم'} (${currentUserData.userType || 'عضو'}) الشات.`;
+                //     await sendChatSystemMessage(leaveMessageText, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_leave', currentUserData.userType);
+                //     sessionStorage.removeItem(`hasJoinedChatSession_${currentUserData.uid}`);
+                // }
                 await signOut(auth);
-                sessionStorage.clear();
+                sessionStorage.clear(); // مسح الجلسة بالكامل عند تسجيل الخروج
                 window.location.href = LOGIN_PAGE_URL;
             } catch (error) {
                 console.error("خطأ في تسجيل الخروج من المودال:", error);
-                displaySystemMessage("فشل تسجيل الخروج. الرجاء المحاولة مرة أخرى."); // ستظهر في الكونسول فقط
+                displaySystemMessage("فشل تسجيل الخروج. الرجاء المحاولة مرة أخرى.");
             }
         }
     });
 }
-
 // ===========================================
 // وظائف ومودالات المستخدمين المسجلين (تم التعديل)
 // ===========================================
@@ -771,24 +909,17 @@ async function fetchAndDisplayRegisteredUsers() {
             button.addEventListener('click', (e) => {
                 const uid = e.currentTarget.dataset.uid;
                 const username = e.currentTarget.closest('.user-item').querySelector('.user-item-username').textContent;
-                const photoURL = e.currentTarget.closest('.user-item').querySelector('.user-item-avatar').src;
-
-                // هنا يمكنك فتح ملف شخصي تفصيلي أو بدء دردشة خاصة مباشرة
-                if (confirm(`هل تريد بدء محادثة خاصة مع ${username}؟`)) {
-                    if (hasPermission('canStartPrivateChat')) {
-                        startNewPrivateChat(uid, username, photoURL);
-                        closeRegisteredUsersModalButton.click(); // إغلاق مودال المستخدمين
-                    } else {
-                        displaySystemMessage("ليس لديك صلاحية لبدء محادثات خاصة.", 'system_error');
-                    }
-                }
+                // قم بعمل أي شيء تريده عند عرض ملف شخصي (مثلاً، افتح مودال جديد بمعلومات المستخدم)
+                alert(`عرض الملف الشخصي للمستخدم: ${username} (UID: ${uid})`);
+                // هنا يمكنك إضافة منطق لفتح مودال تفصيلي للملف الشخصي
             });
         });
 
         registeredUsersModal.style.display = 'flex';
-    } catch (error) {
+    }
+     catch (error) {
         console.error("خطأ في جلب المستخدمين المسجلين:", error);
-        displaySystemMessage("فشل تحميل قائمة المستخدمين المسجلين.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("فشل تحميل قائمة المستخدمين المسجلين.", 'system_error');
     }
 }
 
@@ -853,8 +984,7 @@ async function fetchAndDisplayNews() {
                     <span class="news-date">${newsDate}</span>
                     <div class="news-actions">${adminNewsButtons}</div>
                 </div>
-                <p class="news-content">${newsItem.content}</p>
-            `;
+                <p class="news-content">${newsItem.content || 'لا يوجد محتوى لهذا الخبر.'}</p> `;
             newsList.appendChild(newsElement);
         });
 
@@ -865,7 +995,7 @@ async function fetchAndDisplayNews() {
                 // ابحث عن الخبر في querySnapshot (أو اجلبه مرة أخرى)
                 const newsToEdit = querySnapshot.docs.find(doc => doc.id === id)?.data();
                 if (newsToEdit) {
-                    openNewsInputModal(id, newsToEdit.content);
+                    openNewsInputModal(id, newsToEdit.content || ''); // تأكد من تمرير سلسلة نصية
                 }
             });
         });
@@ -879,7 +1009,7 @@ async function fetchAndDisplayNews() {
 
     } catch (error) {
         console.error("خطأ في جلب وعرض الأخبار:", error);
-        displaySystemMessage("فشل تحميل الأخبار.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("فشل تحميل الأخبار.", 'system_error');
     }
 }
 
@@ -909,13 +1039,13 @@ function openNewsInputModal(id = null, content = '') {
 // دالة لحفظ الخبر (إضافة أو تعديل)
 async function saveNewsItem() {
     if (!hasPermission('canManageNews')) {
-        displaySystemMessage("ليس لديك صلاحية لإضافة/تعديل الأخبار.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("ليس لديك صلاحية لإضافة/تعديل الأخبار.", 'system_error');
         return;
     }
 
     const content = newsContentInput.value.trim();
     if (content === '') {
-        displaySystemMessage("الرجاء كتابة محتوى الخبر.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("الرجاء كتابة محتوى الخبر.", 'system_error');
         return;
     }
 
@@ -928,7 +1058,7 @@ async function saveNewsItem() {
                 editorUid: currentUserData.uid,
                 editorUsername: currentUserData.username
             });
-            displaySystemMessage("تم تعديل الخبر بنجاح.", 'system_info'); // ستظهر في الكونسول فقط
+            displaySystemMessage("تم تعديل الخبر بنجاح.", 'system_info');
         } else {
             // إضافة خبر جديد
             await addDoc(collection(db, NEWS_COLLECTION), {
@@ -937,30 +1067,30 @@ async function saveNewsItem() {
                 authorUid: currentUserData.uid,
                 authorUsername: currentUserData.username
             });
-            displaySystemMessage("تم إضافة الخبر بنجاح.", 'system_info'); // ستظهر في الكونسول فقط
+            displaySystemMessage("تم إضافة الخبر بنجاح.", 'system_info');
         }
         closeNewsInputModalFunc();
         openNewsModal(); // إعادة فتح مودال عرض الأخبار لتحديث القائمة
     } catch (error) {
         console.error("خطأ في حفظ الخبر:", error);
-        displaySystemMessage("فشل حفظ الخبر. الرجاء المحاولة مرة أخرى.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("فشل حفظ الخبر. الرجاء المحاولة مرة أخرى.", 'system_error');
     }
 }
 
 // دالة لحذف خبر
 async function deleteNewsItem(id) {
     if (!hasPermission('canManageNews')) {
-        displaySystemMessage("ليس لديك صلاحية لحذف الأخبار.", 'system_error'); // ستظهر في الكونسول فقط
+        displaySystemMessage("ليس لديك صلاحية لحذف الأخبار.", 'system_error');
         return;
     }
     if (confirm("هل أنت متأكد أنك تريد حذف هذا الخبر؟")) {
         try {
             await deleteDoc(doc(db, NEWS_COLLECTION, id));
-            displaySystemMessage("تم حذف الخبر بنجاح.", 'system_info'); // ستظهر في الكونسول فقط
+            displaySystemMessage("تم حذف الخبر بنجاح.", 'system_info');
             fetchAndDisplayNews(); // تحديث قائمة الأخبار
         } catch (error) {
             console.error("خطأ في حذف الخبر:", error);
-            displaySystemMessage("فشل حذف الخبر. الرجاء المحاولة مرة أخرى.", 'system_error'); // ستظهر في الكونسول فقط
+            displaySystemMessage("فشل حذف الخبر. الرجاء المحاولة مرة أخرى.", 'system_error');
         }
     }
 }
@@ -1242,11 +1372,11 @@ if (soundButton) {
         if (soundEnabled) {
             icon.classList.remove('fa-volume-mute');
             icon.classList.add('fa-volume-up');
-            displaySystemMessage("تم تفعيل أصوات التنبيه.", 'system_info'); // ستظهر في الكونسول فقط
+            displaySystemMessage("تم تفعيل أصوات التنبيه.", 'system_info');
         } else {
             icon.classList.remove('fa-volume-up');
             icon.classList.add('fa-volume-mute');
-            displaySystemMessage("تم كتم أصوات التنبيه.", 'system_info'); // ستظهر في الكونسول فقط
+            displaySystemMessage("تم كتم أصوات التنبيه.", 'system_info');
         }
         localStorage.setItem('chatSoundEnabled', soundEnabled);
     });
@@ -1340,6 +1470,13 @@ if (convertPointsButton) {
 // ===========================================
 // أزرار التنقل السفلية
 // ===========================================
+// **تأكد من وجود هذه العناصر في HTML الخاص بك إذا كنت تستخدمها**
+const homeButton = document.getElementById('homeButton');
+const roomsButton = document.getElementById('roomsButton');
+const plusButton = document.getElementById('plusButton');
+const bottomNotificationButton = document.getElementById('bottomNotificationButton');
+const settingsButton = document.getElementById('settingsButton');
+
 
 if (homeButton) {
     homeButton.addEventListener('click', () => {
@@ -1376,73 +1513,74 @@ if (settingsButton) {
 // ===========================================
 
 document.addEventListener("DOMContentLoaded", async () => {
-    const loggedIn = sessionStorage.getItem('loggedIn');
-    const userUid = sessionStorage.getItem('userUid');
+    // استخدم onAuthStateChanged للتعامل مع حالة تسجيل الدخول من Firebase
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            // المستخدم مسجل الدخول
+            await fetchCurrentUserData(user.uid); // جلب بيانات المستخدم بناءً على UID من Firebase
 
-    if (loggedIn === 'true' && userUid) {
-        await fetchCurrentUserData(userUid);
+            if (!currentUserData || !currentUserData.uid) {
+                console.error("بيانات المستخدم غير مكتملة بعد الجلب. سيتم إعادة التوجيه.");
+                displaySystemMessage("خطأ في جلب بيانات المستخدم. سيتم إعادة التوجيه.");
+                setTimeout(() => {
+                    window.location.href = LOGIN_PAGE_URL;
+                }, 2000);
+                return;
+            }
 
-        if (!currentUserData || !currentUserData.uid) {
-            console.error("بيانات المستخدم غير مكتملة بعد الجلب.");
-            displaySystemMessage("خطأ في جلب بيانات المستخدم. سيتم إعادة التوجيه."); // ستظهر في الكونسول فقط
+            // تحديث صورة المستخدم في زر الملف الشخصي
+            if (profileButton) { // التحقق من وجود الزر
+                const profileIcon = profileButton.querySelector('.profile-icon');
+                if (profileIcon && currentUserData.photoURL) {
+                    profileIcon.src = currentUserData.photoURL;
+                }
+            }
+
+            // إخفاء/إظهار حقل الإدخال وزر الإرسال للزوار
+            if (messageInput && sendMessageButton) {
+                if (!hasPermission('canSendMessage')) {
+                    messageInput.disabled = true;
+                    messageInput.placeholder = "ليس لديك صلاحية لإرسال الرسائل.";
+                    sendMessageButton.style.display = 'none';
+                } else {
+                    messageInput.disabled = false;
+                    messageInput.placeholder = "اكتب رسالتك هنا...";
+                    sendMessageButton.style.display = 'flex';
+                }
+            }
+
+            // منطق رسالة الانضمام (يستخدم sessionStorage لمنع تكرار الرسالة في نفس الجلسة)
+            const hasJoinedKey = `hasJoinedChatSession_${user.uid}`;
+            const hasJoined = sessionStorage.getItem(hasJoinedKey);
+
+            // **التعديل هنا: لنرسل رسالة الانضمام فقط إذا لم يكن قد انضم في هذه الجلسة**
+            if (!hasJoined) {
+                const joinMessageText = `انضم ${currentUserData.username || 'مستخدم'} (${currentUserData.userType || 'عضو'}) إلى الغرفة.`;
+                await sendChatSystemMessage(joinMessageText, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_join', currentUserData.userType);
+                sessionStorage.setItem(hasJoinedKey, 'true'); // وضع علامة أن المستخدم قد انضم في هذه الجلسة
+            }
+
+            await fetchAllUsers(); // جلب جميع المستخدمين مرة واحدة عند التحميل الأولي
+            listenForMessages(); // بدء الاستماع للرسائل
+
+        } else {
+            // المستخدم غير مسجل الدخول، أو تم تسجيل خروجه
+            displaySystemMessage("لم يتم تسجيل الدخول. يتم توجيهك.");
             setTimeout(() => {
                 window.location.href = LOGIN_PAGE_URL;
             }, 2000);
-            return;
         }
-
-        // تحديث صورة المستخدم في زر الملف الشخصي
-        if (profileButton && currentUserData.photoURL) {
-            const profileIcon = profileButton.querySelector('.profile-icon');
-            if (profileIcon) {
-                profileIcon.src = currentUserData.photoURL;
-            }
-        }
-
-        // إخفاء/إظهار حقل الإدخال وزر الإرسال للزوار
-        if (messageInput && sendMessageButton) {
-            if (!hasPermission('canSendMessage')) {
-                messageInput.disabled = true;
-                messageInput.placeholder = "ليس لديك صلاحية لإرسال الرسائل.";
-                sendMessageButton.style.display = 'none';
-            } else {
-                messageInput.disabled = false;
-                messageInput.placeholder = "اكتب رسالتك هنا...";
-                sendMessageButton.style.display = 'flex';
-            }
-        }
-
-        const hasJoinedKey = `hasJoinedChatSession_${userUid}`;
-        const hasJoined = sessionStorage.getItem(hasJoinedKey);
-
-        if (!hasJoined) {
-            const joinMessageText = `انضم ${currentUserData.username || 'مستخدم'} (${currentUserData.userType || 'عضو'}) إلى الغرفة.`;
-            // هذه الرسالة ستظهر في الشات لأن نوعها 'system_join'
-            await sendChatSystemMessage(joinMessageText, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_join', currentUserData.userType);
-            sessionStorage.setItem(hasJoinedKey, 'true');
-        }
-
-        await fetchAllUsers(); // جلب جميع المستخدمين مرة واحدة عند التحميل الأولي
-
-        listenForMessages();
-    } else {
-        displaySystemMessage("لم يتم تسجيل الدخول. يتم توجيهك."); // ستظهر في الكونسول فقط
-        setTimeout(() => {
-            window.location.href = LOGIN_PAGE_URL;
-        }, 2000);
-    }
+    });
 });
 
-// معالجة مغادرة المستخدم للصفحة لتحديث حالة الاتصال
+// معالجة مغادرة المستخدم للصفحة (تم حذف رسائل المغادرة)
 window.addEventListener('beforeunload', async () => {
-    if (currentUserData && currentUserData.uid) {
-        const hasJoinedKey = `hasJoinedChatSession_${currentUserData.uid}`;
-        const hasJoined = sessionStorage.getItem(hasJoinedKey);
-        if (hasJoined) {
-            const leaveMessageText = `غادر ${currentUserData.username || 'مستخدم'} (${currentUserData.userType || 'عضو'}) الغرفة.`;
-            // لا تنتظر هنا، لأن beforeunload لا يدعم الـ async بشكل كامل في جميع المتصفحات
-            sendChatSystemMessage(leaveMessageText, currentUserData.uid, currentUserData.username, currentUserData.photoURL, 'system_leave', currentUserData.userType);
-            sessionStorage.removeItem(hasJoinedKey);
-        }
-    }
+    // **التعديل هنا: إزالة العلم من sessionStorage فقط إذا لم نكن نريد الرسالة على الإطلاق عند إعادة التحميل**
+    // للحفاظ على عدم ظهور الرسالة عند تحديث الصفحة (F5)، يجب أن نحافظ على هذا العلم.
+    // إذا كنت تريد أن تظهر الرسالة عند إغلاق المتصفح وفتحه مرة أخرى، فالسلوك الحالي صحيح.
+    // إذا كنت تريد إظهار رسالة الانضمام عند كل تحديث، احذف السطرين التاليين:
+    // if (currentUserData && currentUserData.uid) {
+    //     const hasJoinedKey = `hasJoinedChatSession_${currentUserData.uid}`;
+    //     sessionStorage.removeItem(hasJoinedKey); // إزالة العلم لضمان إعادة إرسال رسالة الانضمام عند العودة
+    // }
 });
