@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم المشرف</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="css/chat_app_styles.css"> <link rel="stylesheet" href="css/admin_panel_styles.css"> </head>
+<body>
+    <div class="admin-panel-container">
+        <header class="admin-header">
+            <h1>لوحة تحكم المشرف</h1>
+            <nav class="admin-nav">
+                <button class="nav-button active" data-section="dashboard">لوحة القيادة</button>
+                <button class="nav-button" data-section="users">إدارة المستخدمين</button>
+                <button class="nav-button" data-section="messages">إدارة الرسائل</button>
+                <button class="nav-button" data-section="news">إدارة الأخبار</button>
+                <button class="nav-button" data-section="settings">الإعدادات العامة</button>
+                <button class="nav-button" id="adminLogoutButton">تسجيل الخروج <i class="fas fa-sign-out-alt"></i></button>
+            </nav>
+        </header>
+
+        <main class="admin-main-content">
+            <section id="dashboard" class="admin-section active">
+                <h2>نظرة عامة على النظام</h2>
+                <div class="dashboard-stats">
+                    <div class="stat-card">
+                        <h3><i class="fas fa-users"></i> إجمالي المستخدمين</h3>
+                        <p id="totalUsersCount">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3><i class="fas fa-user-friends"></i> مستخدمون متصلون</h3>
+                        <p id="onlineUsersCount">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3><i class="fas fa-comments"></i> إجمالي الرسائل</h3>
+                        <p id="totalMessagesCount">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3><i class="fas fa-newspaper"></i> الأخبار المنشورة</h3>
+                        <p id="totalNewsCount">0</p>
+                    </div>
+                </div>
+                </section>
+
+            <section id="users" class="admin-section">
+                <h2>إدارة المستخدمين</h2>
+                <div class="user-management-controls">
+                    <input type="text" id="userSearchInput" placeholder="ابحث عن مستخدم بالاسم أو الـ UID">
+                    <button id="searchUserButton"><i class="fas fa-search"></i> بحث</button>
+                </div>
+                <div class="user-list-container">
+                    <ul id="adminUserList" class="user-list">
+                        <li class="no-users-found">لا يوجد مستخدمون لعرضهم.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="messages" class="admin-section">
+                <h2>إدارة الرسائل</h2>
+                <div class="message-filters">
+                    <label for="messageRoomFilter">تصفية حسب الغرفة:</label>
+                    <select id="messageRoomFilter">
+                        <option value="all">جميع الغرف</option>
+                        </select>
+                    <input type="text" id="messageSearchInput" placeholder="ابحث عن رسالة أو مرسل">
+                    <button id="searchMessagesButton"><i class="fas fa-search"></i> بحث</button>
+                </div>
+                <div class="message-list-container">
+                    <ul id="adminMessageList" class="message-list">
+                        <li class="no-messages-found">لا توجد رسائل لعرضها.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="news" class="admin-section">
+                <h2>إدارة الأخبار</h2>
+                <button id="addNewNewsButton" class="add-button"><i class="fas fa-plus"></i> إضافة خبر جديد</button>
+                <div class="news-list-container">
+                    <ul id="adminNewsList" class="news-list">
+                        <li class="no-news-found">لا توجد أخبار لعرضها.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="settings" class="admin-section">
+                <h2>الإعدادات العامة للنظام</h2>
+                <div class="setting-item">
+                    <label for="chatStatusToggle">حالة الدردشة:</label>
+                    <input type="checkbox" id="chatStatusToggle">
+                    <span class="toggle-label" id="chatStatusLabel"></span>
+                </div>
+                <button id="saveGeneralSettingsButton" class="save-button"><i class="fas fa-save"></i> حفظ الإعدادات</button>
+            </section>
+        </main>
+    </div>
+
+    <div id="editUserModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" id="closeEditUserModal">&times;</span>
+            <h2>تعديل معلومات المستخدم</h2>
+            <form id="editUserForm">
+                <div class="form-group">
+                    <label for="editUsername">اسم المستخدم:</label>
+                    <input type="text" id="editUsername" required>
+                </div>
+                <div class="form-group">
+                    <label for="editUserType">الرتبة:</label>
+                    <select id="editUserType">
+                        <option value="زائر">زائر</option>
+                        <option value="عضو">عضو</option>
+                        <option value="ادمن">ادمن</option>
+                        <option value="سوبر ادمن">سوبر ادمن</option>
+                        <option value="سوبر اداري">سوبر اداري</option>
+                        <option value="المالك">المالك</option>
+                        <option value="اونر">اونر</option>
+                        <option value="اونر اداري">اونر اداري</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="editUserStatus">الحالة:</label>
+                    <select id="editUserStatus">
+                        <option value="متاح">متاح</option>
+                        <option value="محظور">محظور</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="editUserBio">نبذة شخصية (Bio):</label>
+                    <textarea id="editUserBio"></textarea>
+                </div>
+                <button type="submit" class="modal-button"><i class="fas fa-save"></i> حفظ التعديلات</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="editNewsModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" id="closeEditNewsModal">&times;</span>
+            <h2>تعديل / إضافة خبر</h2>
+            <textarea id="editNewsContent" placeholder="محتوى الخبر..."></textarea>
+            <button id="saveNewsChangesButton" class="modal-button"><i class="fas fa-save"></i> حفظ</button>
+            <button id="cancelNewsEditModalButton" class="modal-button cancel-button"><i class="fas fa-times-circle"></i> إلغاء</button>
+        </div>
+    </div>
+
+
+    <script type="module" src="js/firebaseInit.js"></script>
+    <script type="module" src="js/admin_panel_script.js"></script> </body>
+</html>
